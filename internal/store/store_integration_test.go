@@ -4,7 +4,9 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"github.com/arifbintoro1993/receh/internal/expense"
 	"github.com/arifbintoro1993/receh/internal/store/db"
 )
 
@@ -56,26 +59,79 @@ func TestStore(t *testing.T) {
 	}
 
 	q := db.New(pool)
-	if err := q.EnsureUser(ctx, db.EnsureUserParams{
-		ChatID: chatID, Tz: "Asia/Jakarta", CycleStartDay: 25,
-		ReportTypes: []string{"weekly", "monthly"}, ReportHour: 20,
-	}); err != nil {
+	s := New(pool)
+	seed := expense.DefaultSeed()
+	user := expense.User{ChatID: chatID, TZ: "Asia/Jakarta", CycleStartDay: 25, ReportTypes: []string{"weekly", "monthly"}, ReportHour: 20}
+	if _, err := s.EnsureUser(ctx, user, seed); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("ensure user is idempotent", func(t *testing.T) {
-		err := q.EnsureUser(ctx, db.EnsureUserParams{
-			ChatID: chatID, Tz: "UTC", CycleStartDay: 1, ReportTypes: []string{"cycle"}, ReportHour: 8,
-		})
+	t.Run("ensure user seeds once and never overwrites", func(t *testing.T) {
+		other := expense.User{ChatID: chatID, TZ: "UTC", CycleStartDay: 1, ReportTypes: []string{"cycle"}, ReportHour: 8}
+		got, err := s.EnsureUser(ctx, other, seed)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var tz string
-		if err := pool.QueryRow(ctx, "SELECT tz FROM users WHERE chat_id = $1", chatID).Scan(&tz); err != nil {
+		if !reflect.DeepEqual(got, user) {
+			t.Errorf("got %+v, want original %+v", got, user)
+		}
+		var categories, keywords int
+		if err := pool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM categories WHERE chat_id = $1),
+			(SELECT count(*) FROM keyword_map WHERE chat_id = $1)`, chatID).Scan(&categories, &keywords); err != nil {
 			t.Fatal(err)
 		}
-		if tz != "Asia/Jakarta" {
-			t.Errorf("tz = %q, existing user must not be overwritten", tz)
+		if categories != len(seed.Categories) || keywords != len(seed.Keywords) {
+			t.Errorf("seeded %d categories / %d keywords, want %d / %d", categories, keywords, len(seed.Categories), len(seed.Keywords))
+		}
+	})
+
+	t.Run("concurrent first use seeds once", func(t *testing.T) {
+		const newChat int64 = 7
+		u := user
+		u.ChatID = newChat
+		var wg sync.WaitGroup
+		errs := make(chan error, 8)
+		for range 8 {
+			wg.Go(func() {
+				if _, err := s.EnsureUser(ctx, u, seed); err != nil {
+					errs <- err
+				}
+			})
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Error(err)
+		}
+		var categories int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM categories WHERE chat_id = $1", newChat).Scan(&categories); err != nil {
+			t.Fatal(err)
+		}
+		if categories != len(seed.Categories) {
+			t.Errorf("categories = %d, want %d", categories, len(seed.Categories))
+		}
+	})
+
+	t.Run("category by keywords picks earliest mapped word", func(t *testing.T) {
+		tests := []struct {
+			words     []string
+			want      string
+			wantFound bool
+		}{
+			{words: []string{"makan", "siang"}, want: "Food", wantFound: true},
+			{words: []string{"grab", "beli", "kopi"}, want: "Transport", wantFound: true},
+			{words: []string{"beli", "kopi", "grab"}, want: "Food", wantFound: true},
+			{words: []string{"buku"}},
+		}
+		for _, tt := range tests {
+			got, found, err := s.CategoryByKeywords(ctx, chatID, tt.words)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found != tt.wantFound || got.Name != tt.want {
+				t.Errorf("%v: got %q found=%v, want %q found=%v", tt.words, got.Name, found, tt.want, tt.wantFound)
+			}
 		}
 	})
 

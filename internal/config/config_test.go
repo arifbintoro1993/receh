@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -30,17 +31,31 @@ func TestLoad(t *testing.T) {
 				if len(c.AllowedChatIDs) != 2 || c.AllowedChatIDs[0] != 111 || c.AllowedChatIDs[1] != -222 {
 					t.Errorf("AllowedChatIDs = %v, want [111 -222]", c.AllowedChatIDs)
 				}
+				if c.CycleStartDay != 25 || c.ReportHour != 20 || !slices.Equal(c.ReportTypes, []string{"weekly", "monthly"}) {
+					t.Errorf("report defaults = day %d, hour %d, types %v", c.CycleStartDay, c.ReportHour, c.ReportTypes)
+				}
 			},
 		},
 		{
 			name: "overrides",
-			env:  with(valid, map[string]string{"TZ": "Asia/Makassar", "LOCALE": "en"}),
+			env: with(valid, map[string]string{
+				"TZ": "Asia/Makassar", "LOCALE": "en",
+				"CYCLE_START_DAY": "31", "REPORT_HOUR": "0", "REPORT_TYPES": "cycle",
+			}),
 			check: func(t *testing.T, c Config) {
 				if c.TZ.String() != "Asia/Makassar" || c.Locale != "en" {
 					t.Errorf("got TZ=%q Locale=%q", c.TZ, c.Locale)
 				}
+				if c.CycleStartDay != 31 || c.ReportHour != 0 || !slices.Equal(c.ReportTypes, []string{"cycle"}) {
+					t.Errorf("report overrides = day %d, hour %d, types %v", c.CycleStartDay, c.ReportHour, c.ReportTypes)
+				}
 			},
 		},
+		{name: "cycle day too low", env: with(valid, map[string]string{"CYCLE_START_DAY": "0"}), wantErr: true},
+		{name: "cycle day too high", env: with(valid, map[string]string{"CYCLE_START_DAY": "32"}), wantErr: true},
+		{name: "report hour too low", env: with(valid, map[string]string{"REPORT_HOUR": "-1"}), wantErr: true},
+		{name: "report hour too high", env: with(valid, map[string]string{"REPORT_HOUR": "24"}), wantErr: true},
+		{name: "unknown report type", env: with(valid, map[string]string{"REPORT_TYPES": "weekly,daily"}), wantErr: true},
 		{name: "missing token", env: with(valid, map[string]string{"TELEGRAM_TOKEN": ""}), wantErr: true},
 		{name: "missing allowlist", env: with(valid, map[string]string{"ALLOWED_CHAT_IDS": ""}), wantErr: true},
 		{name: "missing database url", env: with(valid, map[string]string{"DATABASE_URL": ""}), wantErr: true},

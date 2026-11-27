@@ -9,6 +9,35 @@ import (
 	"context"
 )
 
+const categoryByKeywords = `-- name: CategoryByKeywords :one
+SELECT c.id, c.name
+FROM keyword_map k
+JOIN categories c ON c.id = k.category_id
+WHERE k.chat_id = $1
+  AND k.keyword = ANY($2::text[])
+ORDER BY array_position($2::text[], k.keyword)
+LIMIT 1
+`
+
+type CategoryByKeywordsParams struct {
+	ChatID   int64
+	Keywords []string
+}
+
+type CategoryByKeywordsRow struct {
+	ID   int64
+	Name string
+}
+
+// CategoryByKeywords returns the category of the earliest keyword in the
+// array that has a mapping. PK lookups on keyword_map: O(w log n) for w words.
+func (q *Queries) CategoryByKeywords(ctx context.Context, arg CategoryByKeywordsParams) (CategoryByKeywordsRow, error) {
+	row := q.db.QueryRow(ctx, categoryByKeywords, arg.ChatID, arg.Keywords)
+	var i CategoryByKeywordsRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const upsertCategory = `-- name: UpsertCategory :one
 INSERT INTO categories (chat_id, name)
 VALUES ($1, $2)

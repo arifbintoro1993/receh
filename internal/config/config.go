@@ -15,9 +15,17 @@ type Config struct {
 	TZ             *time.Location `env:"TZ" envDefault:"Asia/Jakarta"`
 	Locale         string         `env:"LOCALE" envDefault:"id"`
 	LogLevel       string         `env:"LOG_LEVEL" envDefault:"info"`
+
+	// Defaults for a chat's settings on first use; each chat can change them later.
+	CycleStartDay int      `env:"CYCLE_START_DAY" envDefault:"25"`
+	ReportTypes   []string `env:"REPORT_TYPES" envDefault:"weekly,monthly"`
+	ReportHour    int      `env:"REPORT_HOUR" envDefault:"20"`
 }
 
-var supportedLocales = map[string]bool{"id": true, "en": true}
+var (
+	supportedLocales = map[string]bool{"id": true, "en": true}
+	reportTypes      = map[string]bool{"weekly": true, "monthly": true, "cycle": true}
+)
 
 // Load parses config from the given environment, e.g. env.ToMap(os.Environ()).
 // Taking a map instead of reading os.Environ keeps tests hermetic.
@@ -28,6 +36,17 @@ func Load(environ map[string]string) (Config, error) {
 	}
 	if !supportedLocales[c.Locale] {
 		return Config{}, fmt.Errorf("unsupported LOCALE %q (want id or en)", c.Locale)
+	}
+	if c.CycleStartDay < 1 || c.CycleStartDay > 31 {
+		return Config{}, fmt.Errorf("CYCLE_START_DAY %d out of range 1..31", c.CycleStartDay)
+	}
+	if c.ReportHour < 0 || c.ReportHour > 23 {
+		return Config{}, fmt.Errorf("REPORT_HOUR %d out of range 0..23", c.ReportHour)
+	}
+	for _, t := range c.ReportTypes {
+		if !reportTypes[t] {
+			return Config{}, fmt.Errorf("unknown REPORT_TYPES entry %q (want weekly, monthly or cycle)", t)
+		}
 	}
 	return c, nil
 }

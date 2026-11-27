@@ -11,6 +11,7 @@ import (
 	"github.com/caarlos0/env/v11"
 
 	"github.com/arifbintoro1993/receh/internal/config"
+	"github.com/arifbintoro1993/receh/internal/store"
 
 	// Distroless has no zoneinfo; embed it so users.tz always resolves.
 	_ "time/tzdata"
@@ -39,6 +40,17 @@ func run() error {
 	defer stop()
 
 	slog.Info("starting", "tz", cfg.TZ.String(), "locale", cfg.Locale, "allowlist_size", len(cfg.AllowedChatIDs))
+
+	pool, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	slog.Info("database ready")
+
 	<-ctx.Done()
 	slog.Info("shutting down")
 	return nil

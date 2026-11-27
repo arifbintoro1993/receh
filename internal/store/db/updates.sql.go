@@ -23,3 +23,14 @@ func (q *Queries) MarkUpdateProcessed(ctx context.Context, updateID int64) (int6
 	}
 	return result.RowsAffected(), nil
 }
+
+const unmarkUpdate = `-- name: UnmarkUpdate :exec
+DELETE FROM processed_updates
+WHERE update_id = $1
+`
+
+// UnmarkUpdate releases an update whose handling failed, so a redelivery is retried.
+func (q *Queries) UnmarkUpdate(ctx context.Context, updateID int64) error {
+	_, err := q.db.Exec(ctx, unmarkUpdate, updateID)
+	return err
+}

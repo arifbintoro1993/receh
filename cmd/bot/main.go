@@ -11,7 +11,10 @@ import (
 	"github.com/caarlos0/env/v11"
 
 	"github.com/arifbintoro1993/receh/internal/config"
+	"github.com/arifbintoro1993/receh/internal/expense"
+	"github.com/arifbintoro1993/receh/internal/i18n"
 	"github.com/arifbintoro1993/receh/internal/store"
+	"github.com/arifbintoro1993/receh/internal/telegram"
 
 	// Distroless has no zoneinfo; embed it so users.tz always resolves.
 	_ "time/tzdata"
@@ -51,7 +54,37 @@ func run() error {
 	}
 	slog.Info("database ready")
 
-	<-ctx.Done()
+	st := store.New(pool)
+	svc, err := expense.NewService(st, expense.User{
+		TZ:            cfg.TZ.String(),
+		CycleStartDay: cfg.CycleStartDay,
+		ReportTypes:   cfg.ReportTypes,
+		ReportHour:    cfg.ReportHour,
+	}, expense.DefaultSeed())
+	if err != nil {
+		return fmt.Errorf("expense service: %w", err)
+	}
+	messages, err := i18n.New(cfg.Locale)
+	if err != nil {
+		return err
+	}
+
+	client, err := telegram.NewClient(cfg.TelegramToken, slog.Default())
+	if err != nil {
+		return err
+	}
+	handler := telegram.NewHandler(telegram.Deps{
+		AllowedChatIDs:  cfg.AllowedChatIDs,
+		Log:             svc.Log,
+		MarkProcessed:   st.MarkUpdateProcessed,
+		UnmarkProcessed: st.UnmarkUpdate,
+		Notifier:        client,
+		Messages:        messages,
+		Logger:          slog.Default(),
+	})
+
+	slog.Info("polling telegram")
+	client.Run(ctx, handler) // returns once ctx is cancelled and in-flight updates finish
 	slog.Info("shutting down")
 	return nil
 }

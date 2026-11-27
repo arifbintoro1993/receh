@@ -147,6 +147,16 @@ func TestStore(t *testing.T) {
 		}
 	})
 
+	t.Run("unmark lets an update be processed again", func(t *testing.T) {
+		if err := s.UnmarkUpdate(ctx, 1001); err != nil {
+			t.Fatal(err)
+		}
+		first, err := s.MarkUpdateProcessed(ctx, 1001)
+		if err != nil || !first {
+			t.Errorf("after unmark: first = %v, err = %v; want true, nil", first, err)
+		}
+	})
+
 	t.Run("category upsert is case-insensitive", func(t *testing.T) {
 		a, err := q.UpsertCategory(ctx, db.UpsertCategoryParams{ChatID: chatID, Name: "Food"})
 		if err != nil {

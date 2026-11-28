@@ -15,6 +15,27 @@ func mustLoc(t *testing.T, name string) *time.Location {
 	return loc
 }
 
+func TestDay(t *testing.T) {
+	jkt := mustLoc(t, "Asia/Jakarta")
+	d := func(y int, m time.Month, day, h int) time.Time { return time.Date(y, m, day, h, 0, 0, 0, jkt) }
+
+	tests := []struct {
+		name string
+		at   time.Time
+		want Period
+	}{
+		{name: "midday", at: d(2026, 11, 28, 12), want: Period{d(2026, 11, 28, 0), d(2026, 11, 29, 0)}},
+		{name: "midnight starts day", at: d(2026, 11, 28, 0), want: Period{d(2026, 11, 28, 0), d(2026, 11, 29, 0)}},
+		{name: "year end", at: d(2026, 12, 31, 23), want: Period{d(2026, 12, 31, 0), d(2027, 1, 1, 0)}},
+		{name: "leap day", at: d(2028, 2, 29, 8), want: Period{d(2028, 2, 29, 0), d(2028, 3, 1, 0)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertPeriod(t, Day(tt.at), tt.want)
+		})
+	}
+}
+
 func TestWeek(t *testing.T) {
 	jkt := mustLoc(t, "Asia/Jakarta")
 	d := func(y int, m time.Month, day, h, min int) time.Time { return time.Date(y, m, day, h, min, 0, 0, jkt) }

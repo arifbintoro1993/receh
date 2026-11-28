@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -93,6 +94,37 @@ func (s *Store) InsertExpense(ctx context.Context, e expense.Expense) (int64, er
 		return 0, fmt.Errorf("insert expense: %w", err)
 	}
 	return id, nil
+}
+
+func (s *Store) ExpensesInPeriod(ctx context.Context, chatID int64, start, end time.Time) ([]expense.Expense, error) {
+	rows, err := s.q.ListExpensesInPeriod(ctx, db.ListExpensesInPeriodParams{ChatID: chatID, StartAt: start, EndAt: end})
+	if err != nil {
+		return nil, fmt.Errorf("list expenses in period: %w", err)
+	}
+	out := make([]expense.Expense, len(rows))
+	for i, r := range rows {
+		out[i] = toExpense(chatID, r.ID, r.Amount, r.Note, r.Category, r.SpentAt)
+	}
+	return out, nil
+}
+
+func (s *Store) LastExpenses(ctx context.Context, chatID int64, n int) ([]expense.Expense, error) {
+	rows, err := s.q.ListLastExpenses(ctx, db.ListLastExpensesParams{ChatID: chatID, N: int32(n)})
+	if err != nil {
+		return nil, fmt.Errorf("list last expenses: %w", err)
+	}
+	out := make([]expense.Expense, len(rows))
+	for i, r := range rows {
+		out[i] = toExpense(chatID, r.ID, r.Amount, r.Note, r.Category, r.SpentAt)
+	}
+	return out, nil
+}
+
+func toExpense(chatID, id, amount int64, note, category string, spentAt time.Time) expense.Expense {
+	return expense.Expense{
+		ID: id, ChatID: chatID, Amount: amount, Note: note,
+		Category: expense.Category{Name: category}, SpentAt: spentAt,
+	}
 }
 
 func toUser(r db.GetUserRow) expense.User {

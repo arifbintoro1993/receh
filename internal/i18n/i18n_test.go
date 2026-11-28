@@ -9,7 +9,12 @@ import (
 // sampleArgs gives each key the args its callers pass, so a catalog with a
 // missing or extra verb shows up as a "%!" in the output.
 var sampleArgs = map[Key][]any{
-	Logged: {"Rp25.000", "Food", "kopi", "2026-11-28"},
+	Logged:          {"Rp25.000", "Food", "kopi", "2026-11-28"},
+	SummaryHeader:   {"Today", "2026-11-28"},
+	SummaryTotal:    {"Rp25.000", 1},
+	SummaryCategory: {"Food", "Rp25.000", 1},
+	LastHeader:      {10},
+	LastLine:        {"2026-11-28", "Rp25.000", "Food", "kopi"},
 }
 
 func TestCatalogsAreComplete(t *testing.T) {

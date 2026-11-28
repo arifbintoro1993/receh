@@ -3,6 +3,7 @@ package expense
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,35 @@ type fakeStore struct {
 	seeded     int
 	nextID     int64
 
-	errEnsure, errUpsert, errKeywords, errInsert error
+	errEnsure, errUpsert, errKeywords, errInsert, errList error
+}
+
+func (f *fakeStore) ExpensesInPeriod(_ context.Context, chatID int64, start, end time.Time) ([]Expense, error) {
+	if f.errList != nil {
+		return nil, f.errList
+	}
+	var out []Expense
+	for _, e := range f.expenses {
+		if e.ChatID == chatID && !e.SpentAt.Before(start) && e.SpentAt.Before(end) {
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(a, b Expense) int { return a.SpentAt.Compare(b.SpentAt) })
+	return out, nil
+}
+
+func (f *fakeStore) LastExpenses(_ context.Context, chatID int64, n int) ([]Expense, error) {
+	if f.errList != nil {
+		return nil, f.errList
+	}
+	var out []Expense
+	for _, e := range f.expenses {
+		if e.ChatID == chatID {
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(a, b Expense) int { return b.SpentAt.Compare(a.SpentAt) })
+	return out[:min(n, len(out))], nil
 }
 
 func newFakeStore() *fakeStore {

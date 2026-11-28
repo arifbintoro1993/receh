@@ -17,10 +17,12 @@ import (
 
 var errDB = errors.New("db down")
 
-// reply is one scripted answer from scriptDB: rows for QueryRow, or err.
+// reply is one scripted answer from scriptDB: row for QueryRow, rows for
+// Query, or err.
 type reply struct {
-	row []any
-	err error
+	row  []any
+	rows [][]any
+	err  error
 }
 
 // scriptDB is a DBTX that answers calls in order and records their args.
@@ -47,10 +49,26 @@ func (s *scriptDB) Exec(_ context.Context, _ string, args ...any) (pgconn.Comman
 	return pgconn.NewCommandTag("INSERT 0 1"), s.next(args).err
 }
 
-func (s *scriptDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	s.t.Fatal("Query not expected")
-	return nil, nil
+func (s *scriptDB) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+	r := s.next(args)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &fakeRows{rows: r.rows, i: -1}, nil
 }
+
+// fakeRows embeds pgx.Rows so it keeps satisfying the interface as pgx grows;
+// only the methods sqlc calls are implemented.
+type fakeRows struct {
+	pgx.Rows
+	rows [][]any
+	i    int
+}
+
+func (r *fakeRows) Next() bool             { r.i++; return r.i < len(r.rows) }
+func (r *fakeRows) Scan(dest ...any) error { return fakeRow{row: r.rows[r.i]}.Scan(dest...) }
+func (r *fakeRows) Err() error             { return nil }
+func (r *fakeRows) Close()                 {}
 
 func (s *scriptDB) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
 	r := s.next(args)
@@ -192,6 +210,69 @@ func TestCategoryByKeywords(t *testing.T) {
 			}
 			if !hasArg(sdb.args[0], []string{"makan", "siang"}) {
 				t.Errorf("args = %v", sdb.args[0])
+			}
+		})
+	}
+}
+
+func TestListExpenses(t *testing.T) {
+	at := time.Date(2026, 11, 28, 9, 0, 0, 0, time.UTC)
+	rows := [][]any{
+		{int64(1), int64(25_000), "kopi", at, "Food"},
+		{int64(2), int64(32_500), "gojek", at.Add(time.Hour), "Transport"},
+	}
+	want := []expense.Expense{
+		{ID: 1, ChatID: 42, Amount: 25_000, Note: "kopi", Category: expense.Category{Name: "Food"}, SpentAt: at},
+		{ID: 2, ChatID: 42, Amount: 32_500, Note: "gojek", Category: expense.Category{Name: "Transport"}, SpentAt: at.Add(time.Hour)},
+	}
+	start, end := at, at.Add(24*time.Hour)
+
+	calls := []struct {
+		name     string
+		call     func(s *Store) ([]expense.Expense, error)
+		wantArgs []any
+	}{
+		{
+			name: "in period",
+			call: func(s *Store) ([]expense.Expense, error) {
+				return s.ExpensesInPeriod(context.Background(), 42, start, end)
+			},
+			wantArgs: []any{int64(42), start, end},
+		},
+		{
+			name:     "last n",
+			call:     func(s *Store) ([]expense.Expense, error) { return s.LastExpenses(context.Background(), 42, 10) },
+			wantArgs: []any{int64(42), int32(10)},
+		},
+	}
+	for _, c := range calls {
+		t.Run(c.name, func(t *testing.T) {
+			tests := []struct {
+				name    string
+				reply   reply
+				want    []expense.Expense
+				wantErr error
+			}{
+				{name: "rows", reply: reply{rows: rows}, want: want},
+				{name: "empty", reply: reply{}, want: []expense.Expense{}},
+				{name: "fails", reply: reply{err: errDB}, wantErr: errDB},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					sdb := &scriptDB{t: t, replies: []reply{tt.reply}}
+					got, err := c.call(New(sdb))
+					if !errors.Is(err, tt.wantErr) {
+						t.Fatalf("err = %v, want %v", err, tt.wantErr)
+					}
+					if tt.wantErr == nil && !reflect.DeepEqual(got, tt.want) {
+						t.Errorf("got %+v, want %+v", got, tt.want)
+					}
+					for _, a := range c.wantArgs {
+						if !hasArg(sdb.args[0], a) {
+							t.Errorf("args %v missing %v", sdb.args[0], a)
+						}
+					}
+				})
 			}
 		})
 	}

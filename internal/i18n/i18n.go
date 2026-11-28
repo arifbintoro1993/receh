@@ -22,6 +22,24 @@ const (
 	// InternalError is shown when saving fails; the user may retry.
 	InternalError
 
+	// SpanToday .. SpanCycle name the period of a summary.
+	SpanToday
+	SpanWeek
+	SpanMonth
+	SpanCycle
+	// SummaryHeader titles a summary. Args: span name, date range.
+	SummaryHeader
+	// SummaryTotal is the summary's total line. Args: amount, count.
+	SummaryTotal
+	// SummaryCategory is one category line. Args: name, amount, count.
+	SummaryCategory
+	// LastHeader titles the recent-expenses list. Args: count.
+	LastHeader
+	// LastLine is one recent expense. Args: date, amount, category, note.
+	LastLine
+	// NoExpenses says a period or list has nothing in it.
+	NoExpenses
+
 	numKeys
 )
 

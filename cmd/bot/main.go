@@ -78,6 +78,8 @@ func run() error {
 		Log:             svc.Log,
 		MarkProcessed:   st.MarkUpdateProcessed,
 		UnmarkProcessed: st.UnmarkUpdate,
+		Summarize:       svc.Summarize,
+		Last:            svc.Last,
 		Notifier:        client,
 		Messages:        messages,
 		Logger:          slog.Default(),

@@ -44,6 +44,10 @@ type Store interface {
 	// that has a mapping; found is false if none has.
 	CategoryByKeywords(ctx context.Context, chatID int64, keywords []string) (c Category, found bool, err error)
 	InsertExpense(ctx context.Context, e Expense) (id int64, err error)
+	// ExpensesInPeriod returns live expenses with start <= spent_at < end, oldest first.
+	ExpensesInPeriod(ctx context.Context, chatID int64, start, end time.Time) ([]Expense, error)
+	// LastExpenses returns up to n live expenses, newest first.
+	LastExpenses(ctx context.Context, chatID int64, n int) ([]Expense, error)
 }
 
 type Service struct {
@@ -68,15 +72,9 @@ func NewService(store Store, defaults User, seed Seed) (*Service, error) {
 // returned as-is (parser.ErrNoAmount, parser.ErrInvalidDate) so the caller
 // can reply with help.
 func (s *Service) Log(ctx context.Context, chatID int64, text string, at time.Time) (Expense, error) {
-	newUser := s.defaults
-	newUser.ChatID = chatID
-	user, err := s.store.EnsureUser(ctx, newUser, s.seed)
+	_, loc, err := s.user(ctx, chatID)
 	if err != nil {
-		return Expense{}, fmt.Errorf("ensure user: %w", err)
-	}
-	loc, err := time.LoadLocation(user.TZ)
-	if err != nil {
-		return Expense{}, fmt.Errorf("user time zone %q: %w", user.TZ, err)
+		return Expense{}, err
 	}
 
 	entry, err := parser.Parse(text, at.In(loc))
@@ -94,6 +92,21 @@ func (s *Service) Log(ctx context.Context, chatID int64, text string, at time.Ti
 		return Expense{}, fmt.Errorf("insert expense: %w", err)
 	}
 	return e, nil
+}
+
+// user returns the chat's user, creating it on first use, and its time zone.
+func (s *Service) user(ctx context.Context, chatID int64) (User, *time.Location, error) {
+	newUser := s.defaults
+	newUser.ChatID = chatID
+	user, err := s.store.EnsureUser(ctx, newUser, s.seed)
+	if err != nil {
+		return User{}, nil, fmt.Errorf("ensure user: %w", err)
+	}
+	loc, err := time.LoadLocation(user.TZ)
+	if err != nil {
+		return User{}, nil, fmt.Errorf("user time zone %q: %w", user.TZ, err)
+	}
+	return user, loc, nil
 }
 
 // categorize picks the category: an explicit #tag (created if unknown), else

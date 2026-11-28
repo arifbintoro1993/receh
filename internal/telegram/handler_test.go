@@ -14,6 +14,8 @@ import (
 	"github.com/arifbintoro1993/receh/internal/expense"
 	"github.com/arifbintoro1993/receh/internal/i18n"
 	"github.com/arifbintoro1993/receh/internal/parser"
+	"github.com/arifbintoro1993/receh/internal/period"
+	"github.com/arifbintoro1993/receh/internal/report"
 )
 
 const (
@@ -55,6 +57,15 @@ type harness struct {
 	markErr    error
 	unmarkErr  error
 	lastLogged time.Time
+
+	gotSpan    expense.Span
+	gotSpanAt  time.Time
+	sumPeriod  period.Period
+	sumResult  report.Summary
+	sumErr     error
+	gotLastN   int
+	lastResult []expense.Expense
+	lastErr    error
 }
 
 func newHarness(t *testing.T) *harness {
@@ -84,6 +95,14 @@ func newHarness(t *testing.T) *harness {
 		UnmarkProcessed: func(_ context.Context, id int64) error {
 			delete(hs.processed, id)
 			return hs.unmarkErr
+		},
+		Summarize: func(_ context.Context, _ int64, span expense.Span, at time.Time) (period.Period, report.Summary, error) {
+			hs.gotSpan, hs.gotSpanAt = span, at
+			return hs.sumPeriod, hs.sumResult, hs.sumErr
+		},
+		Last: func(_ context.Context, _ int64, n int) ([]expense.Expense, error) {
+			hs.gotLastN = n
+			return hs.lastResult, hs.lastErr
 		},
 		Notifier: hs.notifier,
 		Messages: messages,
@@ -158,7 +177,7 @@ func TestHandleReplies(t *testing.T) {
 		{name: "help", text: "/help", wantReply: en.T(i18n.Usage), wantMarked: true},
 		{name: "start", text: "/start", wantReply: en.T(i18n.Usage), wantMarked: true},
 		{name: "command with bot name and case", text: "/HELP@receh_bot now", wantReply: en.T(i18n.Usage), wantMarked: true},
-		{name: "unknown command", text: "/today", wantReply: en.T(i18n.UnknownCommand), wantMarked: true},
+		{name: "unknown command", text: "/report", wantReply: en.T(i18n.UnknownCommand), wantMarked: true},
 		{name: "lone slash is text", text: "/", logErr: parser.ErrNoAmount, wantReply: en.T(i18n.Usage), wantLogCalls: 1, wantMarked: true},
 		{name: "unparseable", text: "halo", logErr: parser.ErrNoAmount, wantReply: en.T(i18n.Usage), wantLogCalls: 1, wantMarked: true},
 		{name: "invalid date", text: "kopi 25k @2026-13-01", logErr: fmt.Errorf("%w: x", parser.ErrInvalidDate), wantReply: en.T(i18n.InvalidDate), wantLogCalls: 1, wantMarked: true},

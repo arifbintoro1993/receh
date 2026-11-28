@@ -24,6 +24,15 @@ func (p Period) LastDay() time.Time {
 	return time.Date(y, m, d-1, 0, 0, 0, 0, p.End.Location())
 }
 
+// Day is the calendar day containing t.
+func Day(t time.Time) Period {
+	y, m, d := t.Date()
+	return Period{
+		Start: time.Date(y, m, d, 0, 0, 0, 0, t.Location()),
+		End:   time.Date(y, m, d+1, 0, 0, 0, 0, t.Location()),
+	}
+}
+
 // Week is Monday through Sunday containing t.
 func Week(t time.Time) Period {
 	y, m, d := t.Date()

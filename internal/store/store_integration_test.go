@@ -226,6 +226,56 @@ func TestStore(t *testing.T) {
 		}
 	})
 
+	t.Run("last expenses newest first, limited, skips deleted", func(t *testing.T) {
+		const chat int64 = 99
+		u := user
+		u.ChatID = chat
+		if _, err := s.EnsureUser(ctx, u, seed); err != nil {
+			t.Fatal(err)
+		}
+		cat, err := s.UpsertCategory(ctx, chat, "Food")
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+		var ids []int64
+		for i := range 5 {
+			id, err := s.InsertExpense(ctx, expense.Expense{ChatID: chat, Amount: int64(i+1) * 1000, Category: cat, SpentAt: base.Add(time.Duration(i) * time.Hour)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		if _, err := pool.Exec(ctx, "UPDATE expenses SET deleted_at = now() WHERE id = $1", ids[4]); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := s.LastExpenses(ctx, chat, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 3 || got[0].ID != ids[3] || got[1].ID != ids[2] || got[2].ID != ids[1] {
+			t.Fatalf("got %+v, want ids %v newest first without the deleted one", got, []int64{ids[3], ids[2], ids[1]})
+		}
+		if got[0].Category.Name != "Food" || got[0].Amount != 4000 {
+			t.Errorf("row = %+v", got[0])
+		}
+	})
+
+	t.Run("last expenses query uses partial index", func(t *testing.T) {
+		rec := &sqlRecorder{}
+		single := singleConnPool(t, url, rec)
+		if _, err := single.Exec(ctx, "SET enable_seqscan = off"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(single).LastExpenses(ctx, chatID, 10); err != nil {
+			t.Fatal(err)
+		}
+		if plan := explain(t, single, rec.sql, rec.args); !strings.Contains(plan, "expenses_period_idx") {
+			t.Errorf("plan does not use expenses_period_idx:\n%s", plan)
+		}
+	})
+
 	t.Run("period query uses partial index", func(t *testing.T) {
 		rec := &sqlRecorder{}
 		single := singleConnPool(t, url, rec)

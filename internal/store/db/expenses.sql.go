@@ -88,3 +88,53 @@ func (q *Queries) ListExpensesInPeriod(ctx context.Context, arg ListExpensesInPe
 	}
 	return items, nil
 }
+
+const listLastExpenses = `-- name: ListLastExpenses :many
+SELECT e.id, e.amount, e.note, e.spent_at, c.name AS category
+FROM expenses e
+JOIN categories c ON c.id = e.category_id
+WHERE e.chat_id = $1
+  AND e.deleted_at IS NULL
+ORDER BY e.spent_at DESC, e.id DESC
+LIMIT $2
+`
+
+type ListLastExpensesParams struct {
+	ChatID int64
+	N      int32
+}
+
+type ListLastExpensesRow struct {
+	ID       int64
+	Amount   int64
+	Note     string
+	SpentAt  time.Time
+	Category string
+}
+
+// Backward scan on expenses_period_idx, stopping after n rows: O(log n + limit).
+func (q *Queries) ListLastExpenses(ctx context.Context, arg ListLastExpensesParams) ([]ListLastExpensesRow, error) {
+	rows, err := q.db.Query(ctx, listLastExpenses, arg.ChatID, arg.N)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLastExpensesRow
+	for rows.Next() {
+		var i ListLastExpensesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Amount,
+			&i.Note,
+			&i.SpentAt,
+			&i.Category,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

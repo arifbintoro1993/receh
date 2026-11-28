@@ -13,3 +13,13 @@ WHERE e.chat_id = $1
   AND e.spent_at < sqlc.arg(end_at)
   AND e.deleted_at IS NULL
 ORDER BY e.spent_at, e.id;
+
+-- Backward scan on expenses_period_idx, stopping after n rows: O(log n + limit).
+-- name: ListLastExpenses :many
+SELECT e.id, e.amount, e.note, e.spent_at, c.name AS category
+FROM expenses e
+JOIN categories c ON c.id = e.category_id
+WHERE e.chat_id = $1
+  AND e.deleted_at IS NULL
+ORDER BY e.spent_at DESC, e.id DESC
+LIMIT sqlc.arg(n);
